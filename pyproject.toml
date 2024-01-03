@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "interactovery"
+version = "0.0.1"
+description = "Python module for interactional discovery."
+authors = ["Justin Randall <justin@sitinc.net>"]
+license = "MIT"
+
+# Define the URLs associated with your package
+repository = "https://github.com/sitinc/interactovery-py"
+homepage = "https://github.com/sitinc/interactovery-py"
+documentation = "https://github.com/sitinc/interactovery-py"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+
+# Dependencies of your project
+sentence-transformers = "^2.2.2"
+hdbscan = "^0.8.33"
+scikit-learn = "^1.3.2"
+umap-learn = "^0.5.5"
+pandas = "^2.1.4"
+matplotlib = "^3.8.2"
+seaborn = "^0.13.1"
+numpy = "^1.26.3"
+openai = "^1.6.1"
+python-dotenv = "^1.0.0"
+requests = "^2.31.0"
+spacy = "^3.7.2"
+elasticsearch = "^8.11.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.4.4"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
