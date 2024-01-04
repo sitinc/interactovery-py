@@ -29,9 +29,9 @@ import spacy
 import logging
 import matplotlib.pyplot as plt
 
-from tsdiscovery.openaiwrap import OpenAiWrap, CreateCompletions
-from tsdiscovery.clusterwrap import ClusterWrap
-from tsdiscovery.utils import Utils
+from interactovery.openaiwrap import OpenAiWrap, CreateCompletions
+from interactovery.clusterwrap import ClusterWrap
+from interactovery.utils import Utils
 
 log = logging.getLogger('transcriptLogger')
 
