@@ -4,11 +4,11 @@ machine leaning (ML), and large language models (LLMs) to help you better unders
 
 ## Installation
 
-This project requires Python 3.x. Below are the instructions to set up the environment for this project.
+This project requires Python version range >=3.9 to <3.12. Below are the instructions to set up the environment for this project.
 
 ### Installing interactovery module
 
-You can install the interactovery module frmo PyPI:
+You can install the interactovery module from PyPI:
 
 ```bash
 pip install interactovery
