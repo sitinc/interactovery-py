@@ -1,5 +1,6 @@
 # interactovery-py
-Python module for explore interactional and customer journey data.
+Python module for explore interactional and customer journey data.  A little bit of natural language processing (NLP), 
+machine leaning (ML), and large language models (LLMs) to help you better understand what people are saying or writing.
 
 ## Installation
 
