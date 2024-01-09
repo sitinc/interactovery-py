@@ -57,10 +57,11 @@ parameter, "intent", is a string representing the intent name.  The second param
   words.  The intent name should be three words maximum in camel case with no spaces or special characters.  Don't use 
   the word \"intent\" in the intent name.\n\n"""
 
-sys_prompt_group_intents = """You are helping me group semantically similar intents together."""
+sys_prompt_group_intents = """You are helping me group semantically similar intents_old together."""
 usr_prompt_group_intents = """Below is a list of intent names that were generated based on utterances having semantic 
 similarity.  Reply back with a JSON object with a property name representing each group, and it's value set to the 
-array of grouped intent names.  Don't put the JSON object into a string and don't wrap it with ```json or backticks.\n\n"""
+array of grouped intent names.  Don't put the JSON object into a string and don't wrap it with ```json or backticks.
+\n\n"""
 
 
 class ClusterWrap:
@@ -226,63 +227,6 @@ class ClusterWrap:
             clustered_sentences[cluster_label].append(sentence)
         return clustered_sentences
 
-    def get_new_cluster_labels(self,
-                               *,
-                               session_id: str = None,
-                               clustered_sentences,
-                               output_dir: str,
-                               max_samples: int = 50,
-                               ):
-        """
-        Name a set of sentences clusters.
-        :param session_id: The session ID.
-        :param clustered_sentences: The sentence clusters
-        :param output_dir: The output directory
-        :param max_samples: The number of sample utterances to include in the LLM cluster name call.
-        """
-        if session_id is None:
-            session_id = Utils.new_session_id()
-
-        new_labels = []
-
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Display clusters
-        for i, cluster_entries in clustered_sentences.items():
-            utterances_text = ''
-            all_utterances_text = ''
-
-            # Only use the first set of entries to avoid too much API data transfer.
-            for utterance in cluster_entries[:max_samples]:
-                utterances_text = f'{utterances_text}\n - {utterance}'
-
-            # Use all utterances when outputting to a file.
-            first_itr = 1
-            for utterance in cluster_entries:
-                if first_itr == 1:
-                    all_utterances_text = f'{utterance}'
-                    first_itr = 0
-                else:
-                    all_utterances_text = f'{all_utterances_text}\n{utterance}'
-
-            if i == -1:
-                with codecs.open(f'{output_dir}/-1_noise.txt', 'w', 'utf-8') as f:
-                    f.write(all_utterances_text)
-                continue
-
-            # Generate and save the new clusters name.
-            session_id = Utils.new_session_id()
-            log.info(f"{session_id} | get_new_cluster_labels | Generating name for Cluster #{i}")
-            new_cluster_name = self.get_cluster_name(utterances=utterances_text)
-
-            new_cluster_name_strip = new_cluster_name.strip()
-            new_labels.append(new_cluster_name_strip)
-
-            with codecs.open(f'{output_dir}/{i}_{new_cluster_name_strip}.txt', 'w', 'utf-8') as f:
-                f.write(all_utterances_text)
-
-        return new_labels
-
     def get_new_cluster_definitions(self,
                                     *,
                                     session_id: str = None,
@@ -305,8 +249,14 @@ class ClusterWrap:
 
         os.makedirs(output_dir, exist_ok=True)
 
+        cluster_progress = 0
+        cluster_progress_total = len(clustered_sentences.items())
+
         # Display clusters
         for i, cluster_entries in clustered_sentences.items():
+            cluster_progress = cluster_progress + 1
+            Utils.progress_bar(cluster_progress, cluster_progress_total, 'Generating names for clusters')
+
             utterances_text = ''
             all_utterances_text = ''
 
@@ -332,7 +282,7 @@ class ClusterWrap:
 
             # Generate and save the new clusters name.
             session_id = Utils.new_session_id()
-            log.info(f"{session_id} | get_new_cluster_labels | Generating name for Cluster #{i}")
+            log.debug(f"{session_id} | get_new_cluster_labels | Generating name for Cluster #{i}")
             new_cluster_definition_str = self.get_cluster_definition(utterances=utterances_text)
             new_cluster_definition = json.loads(new_cluster_definition_str)
 
@@ -359,29 +309,6 @@ class ClusterWrap:
             [{'name': name, 'description': description} for name, description in zip(new_names, new_descriptions)]
 
         return new_definitions
-
-    def get_cluster_name(self,
-                         *,
-                         utterances: str,
-                         model: str = "gpt-4-1106-preview",
-                         session_id: str = None
-                         ):
-        """
-        Generate an agent transcript.
-        :param model: The OpenAI chat completion model.
-        :param utterances: The utterances.
-        :param session_id: The session ID.
-        :return: the result transcript.
-        """
-        user_prompt = usr_prompt_name_cluster + utterances
-
-        cmd = CreateCompletions(
-            session_id=session_id,
-            model=model,
-            sys_prompt=sys_prompt_name_cluster,
-            user_prompt=user_prompt,
-        )
-        return self.openai.execute(cmd).result
 
     def get_cluster_definition(self,
                                *,
@@ -410,12 +337,13 @@ class ClusterWrap:
         return result
 
     @staticmethod
-    def visualize_clusters(embeddings, labels, new_labels) -> None:
+    def visualize_clusters(embeddings, labels, new_labels, silhouette_avg) -> None:
         """
         Visualize the named clusters on a graph.
         :param embeddings: The embeddings
         :param labels: The cluster labels
         :param new_labels: The generated cluster labels
+        :param silhouette_avg: The silhouette avg
         """
         # Visualize the clusters.
         tsne = TSNE(n_components=2, random_state=42)
@@ -435,7 +363,7 @@ class ClusterWrap:
             centroid = np.mean(proj_2d[mask], axis=0)
             plt.text(centroid[0], centroid[1], new_label, fontdict={'weight': 'bold', 'size': 10})
 
-        plt.title('Clusters of Named Transcript Utterances (2D t-SNE Projection)', fontsize=15)
+        plt.title(f'Clusters of Utterances - Silhouette - {silhouette_avg:.2f} - (2D t-SNE Projection)', fontsize=15)
         plt.xlabel('t-SNE Dimension 1')
         plt.ylabel('t-SNE Dimension 2')
         plt.colorbar(label='Cluster')
@@ -478,7 +406,9 @@ class ClusterWrap:
         )
         cmd_result = self.openai.execute(cmd)
         result = cmd_result.result
-        log.info(f"{session_id} | get_grouped_intent_names | result: {result}")
+        log.debug(f"{session_id} | get_grouped_intent_names | result: {result}")
 
         with codecs.open(f'{output_dir}/cluster_groupings.txt', 'w', 'utf-8') as f:
             f.write(result)
+
+        return result
