@@ -33,8 +33,7 @@ setup(
         "openai",
         "python-dotenv",
         "requests",
-        "spacy",
-        "elasticsearch"
+        "spacy"
     ],
 
     # Additional classifiers can help users find your project. For a full list,
