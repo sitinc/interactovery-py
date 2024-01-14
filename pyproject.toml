@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "interactovery"
-version = "0.0.5"
+version = "0.0.6"
 description = "Python module for interactional discovery."
 authors = ["Justin Randall <justin@sitinc.net>"]
 license = "MIT"
