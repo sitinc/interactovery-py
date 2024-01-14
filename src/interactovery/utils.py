@@ -22,8 +22,9 @@
 
 import uuid
 import os
-
 import sys
+import shutil
+import codecs
 
 
 class Utils:
@@ -63,9 +64,41 @@ class Utils:
             sys.stdout.flush()
 
     @staticmethod
-    def contains_directories(directory: str) -> bool:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if entry.is_dir():
-                    return True
-        return False
+    def copy_dir(*,
+                 src_dir: str = None,
+                 dst_dir: str = None,
+                 incl_progress: bool = False,
+                 ):
+        """
+        Copies files from one directory to another.
+
+        :param src_dir: The source directory path.
+        :param dst_dir: The destination directory path.
+        :param incl_progress: The flag indicating to include a progress bar.
+        """
+        if src_dir is None or not os.path.isdir(src_dir):
+            raise Exception('src_dir is required')
+
+        if dst_dir is None or not os.path.isdir(dst_dir):
+            raise Exception('dst_dir is required')
+
+        with os.scandir(src_dir) as entries:
+            file_count = sum(1 for entry in entries if entry.is_file())
+
+        with os.scandir(src_dir) as entries:
+            dir_progress = 0
+            dir_progress_total = file_count
+            for entry in entries:
+                dir_progress = dir_progress + 1
+                if incl_progress:
+                    Utils.progress_bar(dir_progress, dir_progress_total, f'Copying file {entry.name}')
+                if entry.is_file():
+                    source_file = os.path.join(src_dir, entry.name)
+                    destination_file = os.path.join(dst_dir, entry.name)
+                    shutil.copy2(source_file, destination_file)
+
+    @staticmethod
+    def count_file_lines(file_path: str) -> int:
+        """Utility function to count the number of lines in a file."""
+        with codecs.open(file_path, 'r', 'utf-8') as file:
+            return sum(1 for _ in file)
