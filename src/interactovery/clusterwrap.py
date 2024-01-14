@@ -19,12 +19,13 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import os
+import re
 
 import json
 
-from interactovery.openaiwrap import OpenAiWrap, CreateCompletions
-from interactovery.utils import Utils
+from interactovery import Utils, OpenAiWrap, CreateCompletions
 
 import logging
 from sentence_transformers import SentenceTransformer
@@ -33,11 +34,7 @@ import umap
 from sklearn.metrics import silhouette_score
 import codecs
 import spacy
-
-# For visualization
-import numpy as np
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
+import pandas as pd
 
 
 # Initialize the logger.
@@ -336,39 +333,6 @@ class ClusterWrap:
         result = result.strip('`')
         return result
 
-    @staticmethod
-    def visualize_clusters(embeddings, labels, new_labels, silhouette_avg) -> None:
-        """
-        Visualize the named clusters on a graph.
-        :param embeddings: The embeddings
-        :param labels: The cluster labels
-        :param new_labels: The generated cluster labels
-        :param silhouette_avg: The silhouette avg
-        """
-        # Visualize the clusters.
-        tsne = TSNE(n_components=2, random_state=42)
-        proj_2d = tsne.fit_transform(embeddings)
-
-        # Plotting
-        plt.figure(figsize=(20, 16))
-        plt.scatter(proj_2d[:, 0], proj_2d[:, 1], c=labels, cmap='Spectral', s=50, alpha=0.7)
-
-        # Calculate the centroid of each clusters
-        for i in np.unique(labels):
-            if i == -1:
-                # Skip noise if necessary
-                continue
-            mask = labels == i
-            new_label = new_labels[i]
-            centroid = np.mean(proj_2d[mask], axis=0)
-            plt.text(centroid[0], centroid[1], new_label, fontdict={'weight': 'bold', 'size': 10})
-
-        plt.title(f'Clusters of Utterances - Silhouette - {silhouette_avg:.2f} - (2D t-SNE Projection)', fontsize=15)
-        plt.xlabel('t-SNE Dimension 1')
-        plt.ylabel('t-SNE Dimension 2')
-        plt.colorbar(label='Cluster')
-        plt.show()
-
     def get_grouped_intent_names(self,
                                  *,
                                  session_id: str = None,
@@ -411,4 +375,35 @@ class ClusterWrap:
         with codecs.open(f'{output_dir}/cluster_groupings.txt', 'w', 'utf-8') as f:
             f.write(result)
 
+        # Convert the dictionary to a DataFrame
+        max_len = max(len(v) for v in result.values())
+        for key in result:
+            result[key] += [''] * (max_len - len(result[key]))
+
+        df = pd.DataFrame(result)
+
+        # Save the DataFrame to a CSV file
+        csv_file_path = os.path.join(output_dir, 'intent_groupings_before.csv')
+        df.to_csv(csv_file_path, index=False)
         return result
+
+    @staticmethod
+    def get_intent_names(directory: str, remove_dups: bool = False) -> list[str]:
+        file_names = []
+
+        files = os.listdir(directory)
+        files.sort()
+
+        for file in files:
+            if os.path.isdir(os.path.join(directory, file)):
+                if file == '-1_noise':
+                    continue
+                normed_file = re.sub("[0-9]+_(.*?)", "\\1", file)
+                file_names.append(normed_file)
+
+        if remove_dups:
+            file_names_set = set(file_names)
+            final_file_names = list(file_names_set)
+            return final_file_names
+
+        return file_names
