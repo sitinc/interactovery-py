@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "interactovery"
-version = "0.0.5"
+version = "0.0.6"
 description = "Python module for interactional discovery."
 authors = ["Justin Randall <justin@sitinc.net>"]
 license = "MIT"
@@ -26,7 +26,6 @@ openai = "^1.6.1"
 python-dotenv = "^1.0.0"
 requests = "^2.31.0"
 spacy = "^3.7.2"
-elasticsearch = "^8.11.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.4.4"
