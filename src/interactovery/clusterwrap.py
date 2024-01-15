@@ -61,6 +61,37 @@ array of grouped intent names.  Don't put the JSON object into a string and don'
 \n\n"""
 
 
+class IntentDefinition:
+    """
+    Intent definition.
+    """
+    def __init__(self,
+                 *,
+                 label: str = None,
+                 name: str = None,
+                 brief: str = None,
+                 description: str = None,
+                 ):
+        self.label = label
+        self.name = name
+        self.brief = brief
+        self.description = description
+
+    def __str__(self):
+        return (f"IntentDefinition(label={self.label}" +
+                f", name={self.name}" +
+                f", brief={self.brief}" +
+                f", description={self.description}" +
+                ")")
+
+    def __repr__(self):
+        return (f"IntentDefinition(label={self.label!r}" +
+                f", name={self.name!r}" +
+                f", brief={self.brief!r}" +
+                f", description={self.description!r}" +
+                ")")
+
+
 class ClusterWrap:
     """
     Implement the main Clustering AI Wrapper class.
@@ -230,7 +261,7 @@ class ClusterWrap:
                                     clustered_sentences,
                                     output_dir: str,
                                     max_samples: int = 50,
-                                    ) -> list[dict[str, str]]:
+                                    ) -> dict:
         """
         Name a set of sentences clusters.
         :param session_id: The session ID.
@@ -238,49 +269,43 @@ class ClusterWrap:
         :param output_dir: The output directory
         :param max_samples: The number of sample utterances to include in the LLM cluster name call.
         """
-        if session_id is None:
-            session_id = Utils.new_session_id()
-
-        new_names = []
-        new_descriptions = []
-
-        os.makedirs(output_dir, exist_ok=True)
+        cluster_labels = []
+        intent_definitions = []
 
         cluster_progress = 0
         cluster_progress_total = len(clustered_sentences.items())
 
-        # Display clusters
+        # Loop through label names and utterances.
         for i, cluster_entries in clustered_sentences.items():
+            if session_id is None:
+                session_id = Utils.new_session_id()
+
             cluster_progress = cluster_progress + 1
             Utils.progress_bar(cluster_progress, cluster_progress_total, 'Generating names for clusters')
 
-            utterances_text = ''
-            all_utterances_text = ''
-
-            # Only use the first set of entries to avoid too much API data transfer.
-            for utterance in cluster_entries[:max_samples]:
-                utterances_text = f'{utterances_text}\n - {utterance}'
+            # Only use max samples of entries to avoid too much API data transfer.
+            prefixed_utterances = [" - " + s for s in cluster_entries[:max_samples]]
+            sample_utterances_text = '\n'.join(prefixed_utterances)
 
             # Use all utterances when outputting to a file.
-            first_itr = 1
-            for utterance in cluster_entries:
-                if first_itr == 1:
-                    all_utterances_text = f'{utterance}'
-                    first_itr = 0
-                else:
-                    all_utterances_text = f'{all_utterances_text}\n{utterance}'
+            all_utterances_text = '\n'.join(cluster_entries)
 
             if i == -1:
                 final_output_dir = f'{output_dir}/-1_noise'
                 os.makedirs(final_output_dir, exist_ok=True)
+                cluster_labels.append(i)
+                intent_definitions.append(IntentDefinition(
+                    label=i,
+                    name='Noise',
+                    description='Utterances not assigned to any cluster.'
+                ))
                 with codecs.open(f'{final_output_dir}/-1_noise.txt', 'w', 'utf-8') as f:
                     f.write(all_utterances_text)
                 continue
 
             # Generate and save the new clusters name.
-            session_id = Utils.new_session_id()
             log.debug(f"{session_id} | get_new_cluster_labels | Generating name for Cluster #{i}")
-            new_cluster_definition_str = self.get_cluster_definition(utterances=utterances_text)
+            new_cluster_definition_str = self.get_cluster_definition(utterances=sample_utterances_text)
             new_cluster_definition = json.loads(new_cluster_definition_str)
 
             log.debug(f"{session_id} | get_new_cluster_labels | Cluster #{i}: {new_cluster_definition}")
@@ -290,8 +315,12 @@ class ClusterWrap:
 
             new_cluster_name_strip = new_cluster_name.strip()
 
-            new_names.append(new_cluster_name_strip)
-            new_descriptions.append(new_cluster_descr)
+            cluster_labels.append(i)
+            intent_definitions.append(IntentDefinition(
+                label=i,
+                name=new_cluster_name_strip,
+                description=new_cluster_descr
+            ))
 
             final_output_dir = f'{output_dir}/{i}_{new_cluster_name_strip}'
             os.makedirs(final_output_dir, exist_ok=True)
@@ -302,8 +331,7 @@ class ClusterWrap:
             with codecs.open(f'{final_output_dir}/{i}_{new_cluster_name_strip}.txt', 'w', 'utf-8') as f:
                 f.write(all_utterances_text)
 
-        new_definitions =\
-            [{'name': name, 'description': description} for name, description in zip(new_names, new_descriptions)]
+        new_definitions = dict(zip(cluster_labels, intent_definitions))
 
         return new_definitions
 
@@ -349,10 +377,6 @@ class ClusterWrap:
         """
         if session_id is None:
             session_id = Utils.new_session_id()
-
-        new_labels = []
-
-        os.makedirs(output_dir, exist_ok=True)
 
         intent_names_text = '\n'.join(intent_names)
 

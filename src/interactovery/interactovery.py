@@ -20,10 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from interactovery import Utils, OpenAiWrap, ClusterWrap, VizWrap, MetricChart
+from interactovery import Utils, OpenAiWrap, ClusterWrap, VizWrap, MetricChart, Workspace
 from collections import Counter, defaultdict
 import pandas as pd
-import pickle
+import numpy as np
 import os
 import re
 import spacy
@@ -74,7 +74,10 @@ class Interactovery:
         self.cluster = cluster
         self.spacy_nlp = spacy_nlp
 
-    def extract_entities(self, df: pd.DataFrame, output_dir: str):
+    def extract_entities(self,
+                         *,
+                         df: pd.DataFrame,
+                         workspace: Workspace):
         entities_by_type = defaultdict(set)
         entities_by_source = defaultdict(set)
 
@@ -86,7 +89,6 @@ class Interactovery:
             Utils.progress_bar(entity_progress, entity_progress_total, 'Extracting known entities')
 
             source = getattr(row, 'source')
-            participant = getattr(row, 'participant')
             utterance = getattr(row, 'utterance')
 
             doc = self.spacy_nlp(utterance)
@@ -95,13 +97,10 @@ class Interactovery:
                 entities_by_type[ent.label_].add(ent.text)
                 entities_by_source[ent.text].add(source)
 
-        # Create a directory to store the entity files
-        os.makedirs(output_dir, exist_ok=True)
-
         # Create and write to files for each entity type
         for entity_type, examples in entities_by_type.items():
-            entity_name = entity_type.lower().replace(' ', '')
-            entity_dir_path = os.path.join(output_dir, entity_name)
+            entity_name: str = entity_type.lower().replace(' ', '')
+            entity_dir_path = os.path.join(workspace.entities_path, entity_name)
             os.makedirs(entity_dir_path, exist_ok=True)
 
             values_file_path = os.path.join(entity_dir_path, DEF_ENTITY_VALUE_SOURCES)
@@ -203,11 +202,71 @@ class Interactovery:
                 scrub_file = re.sub("\\.txt", "", file)
                 print(f"{scrub_file} - {spacy.explain(scrub_file.upper())}")
 
+    def get_embeddings(self,
+                       *,
+                       session_id: str,
+                       utterances: list[str],
+                       ):
+        """
+        Get or create embeddings for a list of utterances.
+        :param session_id: The session ID.
+        :param utterances: The list of utterances.
+        :return: the embeddings.
+        """
+        log.info(f"{session_id} | get_embeddings | Creating embeddings from utterances")
+        embeddings = self.cluster.get_embeddings(utterances=utterances)
+        return embeddings
+
+    def reduce_embeddings(self,
+                          *,
+                          session_id: str,
+                          embeddings,
+                          ):
+        """
+        Reduce the dimensionality of provided embeddings with UMAP.
+        :param session_id: The session ID.
+        :param embeddings: The embeddings.
+        :return: The reduced embeddings.
+        """
+        log.info(f"{session_id} | reduce_embeddings | Reducing dimensionality with UMAP")
+        umap_embeddings = self.cluster.reduce_dimensionality(embeddings=embeddings)
+        return umap_embeddings
+
+    def cluster_scan(self,
+                     *,
+                     session_id: str,
+                     embeddings,
+                     min_cluster_size=40,
+                     min_samples=5,
+                     epsilon=0.2,
+                     ):
+        log.info(f"{session_id} | cluster_scan | Predicting cluster labels")
+        clusters = self.cluster.hdbscan(
+            embeddings=embeddings,
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            epsilon=epsilon,
+        )
+        return clusters
+
+    def define_clusters(self,
+                        *,
+                        session_id: str,
+                        workspace: Workspace,
+                        clustered_sentences,
+                        ):
+        log.info(f"{session_id} | define_clusters | Generating cluster definitions from LLMs")
+        new_definitions = self.cluster.get_new_cluster_definitions(
+            session_id=session_id,
+            clustered_sentences=clustered_sentences,
+            output_dir=workspace.intents_dir_path,
+        )
+        return new_definitions
+
     def cluster_and_name_utterances(self,
                                     *,
-                                    workspace_dir: str,
-                                    output_dir: str,
                                     session_id: str = None,
+                                    workspace: Workspace,
                                     utterances: list[str] = None,
                                     min_cluster_size=40,
                                     min_samples=5,
@@ -219,85 +278,73 @@ class Interactovery:
         if session_id is None:
             session_id = Utils.new_session_id()
 
-        # Create/Load/Store the embeddings.
-        embeddings_file_name = DEF_EMBEDDINGS_FILENAME
-        embeddings_dir = os.path.join(workspace_dir, DEF_EMBEDDINGS_DIRNAME)
-        embeddings_file_path = os.path.join(embeddings_dir, embeddings_file_name)
-
-        if os.path.isfile(embeddings_file_path):
-            log.info(f"{session_id} | cluster_and_name_utterances | Loading embeddings from {embeddings_file_name}")
-            # embeddings = np.load(embeddings_file_path)
-            with open(embeddings_file_path, 'rb') as file:
-                embeddings = pickle.load(file)
-        else:
-            log.info(f"{session_id} | cluster_and_name_utterances | Generating embeddings with 'all-MiniLM-L6-v2'")
-            embeddings = self.cluster.get_embeddings(utterances=utterances)
-            # np.save(embeddings_file_path, embeddings)
-            with open(embeddings_file_path, 'wb') as file:
-                pickle.dump(embeddings, file)
+        # Get the embeddings.
+        embeddings = self.get_embeddings(
+            session_id=session_id,
+            utterances=utterances,
+        )
 
         # Reduce dimensionality.
-        redux_file_name = DEF_REDUX_EMBEDDINGS_FILENAME
-        redux_file_path = os.path.join(embeddings_dir, redux_file_name)
+        umap_embeddings = self.reduce_embeddings(
+            session_id=session_id,
+            embeddings=embeddings,
+        )
 
-        if os.path.isfile(redux_file_path):
-            log.info(f"{session_id} | cluster_and_name_utterances | Loading reduced embeddings from {redux_file_name}")
-            # umap_embeddings = np.load(redux_file_path)
-            with open(redux_file_path, 'rb') as file:
-                umap_embeddings = pickle.load(file)
-        else:
-            log.info(f"{session_id} | cluster_and_name_utterances | Reducing dimensionality with UMAP")
-            umap_embeddings = self.cluster.reduce_dimensionality(embeddings=embeddings)
-            # np.save(redux_file_path, embeddings)
-            with open(redux_file_path, 'wb') as file:
-                pickle.dump(umap_embeddings, file)
+        # Predict cluster labels.
+        clusters = self.cluster_scan(
+            session_id=session_id,
+            embeddings=umap_embeddings,
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            epsilon=epsilon,
+        )
 
-        # Create/Load/Store the cluster results.
-        clusters_file_name = DEF_CLUSTERS_FILENAME
-        clusters_dir = os.path.join(workspace_dir, DEF_CLUSTERS_DIRNAME)
-        clusters_file_path = os.path.join(clusters_dir, clusters_file_name)
-        if os.path.isfile(clusters_file_path):
-            log.info(f"{session_id} | cluster_and_name_utterances | Loading clusters from {clusters_file_name}")
-            with open(clusters_file_path, 'rb') as file:
-                cluster = pickle.load(file)
-        else:
-            log.info(f"{session_id} | cluster_and_name_utterances | Predicting cluster labels with HDBSCAN")
-            cluster = self.cluster.hdbscan(
-                embeddings=umap_embeddings,
-                min_cluster_size=min_cluster_size,
-                min_samples=min_samples,
-                epsilon=epsilon,
-            )
-            with open(clusters_file_path, 'wb') as file:
-                pickle.dump(cluster, file)
-
-        labels = cluster.labels_
+        labels = clusters.labels_
 
         # Get silhouette score.
-        silhouette_avg = self.cluster.get_silhouette(umap_embeddings, cluster)
+        silhouette_avg = self.cluster.get_silhouette(umap_embeddings, clusters)
         log.info(f"{session_id} | cluster_and_name_utterances | Silhouette Score: {silhouette_avg:.2f}")
 
-        clustered_sentences = self.cluster.get_clustered_sentences(utterances, cluster)
+        clustered_sentences = self.cluster.get_clustered_sentences(utterances, clusters)
 
-        definitions_file_name = DEF_CLUSTER_DEFS_FILENAME
-        definitions_file_path = os.path.join(clusters_dir, definitions_file_name)
-        if os.path.isfile(definitions_file_path):
-            log.info(f"{session_id} | cluster_and_name_utterances | Loading definitions from {definitions_file_name}")
-            with open(definitions_file_path, 'rb') as file:
-                new_definitions = pickle.load(file)
+        new_definitions = self.define_clusters(
+            session_id=session_id,
+            workspace=workspace,
+            clustered_sentences=clustered_sentences,
+        )
 
-        else:
-            log.info(f"{session_id} | cluster_and_name_utterances | Generating definitions from LLMs")
-            new_definitions = self.cluster.get_new_cluster_definitions(
-                session_id=session_id,
-                clustered_sentences=clustered_sentences,
-                output_dir=output_dir,
-            )
-            with open(definitions_file_path, 'wb') as file:
-                pickle.dump(new_definitions, file)
-
-        new_labels = [d['name'] for d in new_definitions]
+        intent_labels = np.array([new_definitions[key].name for key in labels])
 
         log.info(f"{session_id} | cluster_and_name_utterances | Visualizing clusters")
 
-        VizWrap.show_cluster_scatter(umap_embeddings, labels, new_labels, silhouette_avg)
+        VizWrap.show_cluster_scatter(
+            embeddings=umap_embeddings,
+            labels=labels,
+            intent_labels=intent_labels,
+            silhouette_avg=silhouette_avg,
+        )
+
+    @staticmethod
+    def save_raw_clusters(*,
+                          workspace: Workspace,
+                          clustered_sentences,
+                          ):
+        """
+        Name a set of sentences clusters.
+        :param workspace: The workspace.
+        :param clustered_sentences: The sentence clusters
+        """
+        cluster_progress = 0
+        cluster_progress_total = len(clustered_sentences.items())
+
+        # Display clusters
+        for i, cluster_entries in clustered_sentences.items():
+            cluster_progress = cluster_progress + 1
+            Utils.progress_bar(cluster_progress, cluster_progress_total, 'Writing raw labels for clusters')
+
+            all_utterances_text = '\n'.join(cluster_entries)
+            final_output_dir = f'{workspace.cluster_raw_dir_path}'
+
+            with codecs.open(f'{final_output_dir}/{i}.txt', 'w', 'utf-8') as f:
+                f.write(all_utterances_text)
+        return True
